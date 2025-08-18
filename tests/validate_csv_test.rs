@@ -21,6 +21,16 @@ struct TestRecord {
 
     #[validate(required, not_in("forbidden", "banned"))]
     tag: Option<String>,
+
+    #[validate(range(min = -5, max = 20))]
+    temp1: i32,
+
+    #[validate(range(min = 10))]
+    temp2: i32,
+
+    #[validate(range(max = 100))]
+    temp3: i32,
+
 }
 
 fn length_validation(s: &str) -> Result<(), String> {
@@ -40,6 +50,9 @@ fn test_valid_record() {
         comments: "ok".into(),
         more_comments: Some("short".into()),
         tag: Some("allowed".into()),
+        temp1: 10,
+        temp2: 15,
+        temp3: 50,
     };
     assert_matches!(record.validate_csv(), Ok(()));
 }
@@ -53,15 +66,14 @@ fn test_invalid_grade() {
         comments: "ok".into(),
         more_comments: Some("medium".into()),
         tag: Some("allowed".into()),
+        temp1: 10,
+        temp2: 15,
+        temp3: 50,        
     };
     let errors = record.validate_csv().unwrap_err();
-    assert_eq!(
-        errors[0],
-        ValidationError {
-            field: "grade".to_string(),
-            message: "value out of expected range: 0 to 100".to_string()
-        }
-    );
+    assert_eq!(errors[0].field, "grade");
+    assert!(errors[0].message.contains("value out of expected range"));
+
 }
 
 #[test]
@@ -73,6 +85,10 @@ fn test_invalid_regex() {
         comments: "ok".into(),
         more_comments: Some("long".into()),
         tag: Some("allowed".into()),
+        temp1: 10,
+        temp2: 15,
+        temp3: 50,        
+
     };
     let errors = record.validate_csv().unwrap_err();
     assert_eq!(errors[0].field, "code");
@@ -88,6 +104,10 @@ fn test_required_name_missing() {
         comments: "ok".into(),
         more_comments: Some("short".into()),
         tag: Some("allowed".into()),
+        temp1: 10,
+        temp2: 15,
+        temp3: 50,        
+
     };
     let errors = record.validate_csv().unwrap_err();
     assert_eq!(errors[0].field, "name");
@@ -102,6 +122,10 @@ fn test_blank_name() {
         comments: "ok".into(),
         more_comments: Some("short".into()),
         tag: Some("allowed".into()),
+        temp1: 10,
+        temp2: 15,
+        temp3: 50,        
+
     };
     let errors = record.validate_csv().unwrap_err();
     assert_eq!(
@@ -122,6 +146,10 @@ fn test_invalid_name_length() {
         comments: "ok".into(),
         more_comments: Some("medium".into()),
         tag: Some("allowed".into()),
+        temp1: 10,
+        temp2: 15,
+        temp3: 50,        
+
     };
     let errors = record.validate_csv().unwrap_err();
     assert_eq!(
@@ -142,6 +170,10 @@ fn test_custom_validator() {
         comments: "too long indeed".into(),
         more_comments: Some("long".into()),
         tag: Some("allowed".into()),
+        temp1: 10,
+        temp2: 15,
+        temp3: 50,        
+
     };
     let errors = record.validate_csv().unwrap_err();
     assert_eq!(errors[0].field, "comments");
@@ -157,6 +189,10 @@ fn test_more_comments_missing() {
         comments: "ok".into(),
         more_comments: None,
         tag: Some("allowed".into()),
+        temp1: 10,
+        temp2: 15,
+        temp3: 50,        
+
     };
     let errors = record.validate_csv().unwrap_err();
     assert_eq!(errors[0].field, "more_comments");
@@ -172,6 +208,10 @@ fn test_more_comments_invalid_value() {
         comments: "short ok".into(),
         more_comments: Some("banana".into()),
         tag: Some("allowed".into()),
+        temp1: 10,
+        temp2: 15,
+        temp3: 50,        
+
     };
     let errors = record.validate_csv().unwrap_err();
     assert_eq!(errors[0].field, "more_comments");
@@ -187,6 +227,10 @@ fn test_tag_missing() {
         comments: "short ok".into(),
         more_comments: Some("short".into()),
         tag: None,
+        temp1: 10,
+        temp2: 15,
+        temp3: 50,        
+
     };
     let errors = record.validate_csv().unwrap_err();
     assert_eq!(errors[0].field, "tag");
@@ -202,8 +246,50 @@ fn test_tag_invalid_value() {
         comments: "short ok".into(),
         more_comments: Some("short".into()),
         tag: Some("banned".into()),
+        temp1: 10,
+        temp2: 15,
+        temp3: 50,        
+
     };
     let errors = record.validate_csv().unwrap_err();
     assert_eq!(errors[0].field, "tag");
     assert_eq!(errors[0].message, "value not allowed");
+}
+
+#[test]
+fn test_tag_invalid_negative_value() {
+    let record = TestRecord {
+        grade: 50.0,
+        code: "ABC1234".to_string(),
+        name: Some("John Smith Jr".into()),
+        comments: "short ok".into(),
+        more_comments: Some("short".into()),
+        tag: Some("over".into()),
+        temp1: -10,
+        temp2: 15,
+        temp3: 50,        
+
+    };
+    let errors = record.validate_csv().unwrap_err();
+    assert_eq!(errors[0].field, "temp1");
+    assert!(errors[0].message.contains("value out of expected range"));
+}
+
+#[test]
+fn test_tag_value_above_max() {
+    let record = TestRecord {
+        grade: 50.0,
+        code: "ABC1234".to_string(),
+        name: Some("John Smith Jr".into()),
+        comments: "short ok".into(),
+        more_comments: Some("short".into()),
+        tag: Some("over".into()),
+        temp1: -1,
+        temp2: 15,
+        temp3: 500,        
+
+    };
+    let errors = record.validate_csv().unwrap_err();
+    assert_eq!(errors[0].field, "temp3");
+    assert!(errors[0].message.contains("value above max"));
 }

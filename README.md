@@ -1,6 +1,8 @@
 # csv-schema-validator
 
-## Version 0.1.2
+In the roadmap: `version 0.2.0` with cross-column validations. 
+
+## Version 0.1.3
 
 [![Crates.io](https://img.shields.io/crates/v/csv-schema-validator.svg)](https://crates.io/crates/csv-schema-validator) [![Documentation](https://docs.rs/csv-schema-validator/badge.svg)](https://docs.rs/csv-schema-validator)
 
@@ -12,7 +14,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-csv-schema-validator = "0.1.2"
+csv-schema-validator = "0.1.3"
 serde = { version = "1.0", features = ["derive"] }
 csv = "1.3"
 regex = "1.11"
@@ -26,7 +28,6 @@ use serde::Deserialize;
 use csv::Reader;
 use csv_schema_validator::{ValidateCsv, ValidationError};
 
-// Define your struct with validation annotations
 #[derive(Deserialize, ValidateCsv, Debug)]
 struct TestRecord {
     #[validate(range(min = 0.0, max = 100.0))]
@@ -46,6 +47,16 @@ struct TestRecord {
 
     #[validate(required, not_in("forbidden", "banned"))]
     tag: Option<String>,
+
+    #[validate(range(min = -5, max = 20))]
+    temp1: i32,
+
+    #[validate(range(min = 10))]
+    temp2: i32,
+
+    #[validate(range(max = 100))]
+    temp3: i32,
+
 }
 
 // Custom validator: comments must be at most 50 characters
@@ -70,14 +81,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Usage
 
-### Range Validation (since 0.1.0)
+### Range Validation (since 0.1.0, changed in 0.1.3)
 
 ```rust
 #[validate(range(min = 0.0, max = 100.0))]
 grade: f64,
 ```
 
-Ensures that `grade` is between 0.0 and 100.0 (inclusive).
+Ensures that `grade` is between 0.0 and 100.0 (inclusive). 
+
+If using version 0.1.3 you can specify just `min` or just `max` to check `greater-or-equal-to` and `less-or-equal-to`.
+Literal type must match field type. You can have `int` or `float` fields but literals must match field type. Only for numeric fields.
 
 ### Regex Validation (since 0.1.0)
 
@@ -86,7 +100,7 @@ Ensures that `grade` is between 0.0 and 100.0 (inclusive).
 code: String,
 ```
 
-Validates the field against a regular expression.
+Validates the field against a regular expression. Only for `String`.
 
 ### Required Validation (since 0.1.0)
 
@@ -95,7 +109,7 @@ Validates the field against a regular expression.
 name: Option<String>,
 ```
 
-Ensures that the `Option` is not `None`.
+Ensures that the `Option` is not `None`. If using `required` the field must be `Option<T>`.
 
 ### Custom Validation (since 0.1.0)
 
@@ -104,7 +118,7 @@ Ensures that the `Option` is not `None`.
 comments: String,
 ```
 
-Calls your custom function `fn(&T) -> Result<(), String>` for additional checks.
+Calls your custom function `fn(&T) -> Result<(), String>` for additional checks. Only for `String` fields.
 
 ### Length (since 0.1.1)
 
@@ -112,6 +126,8 @@ Calls your custom function `fn(&T) -> Result<(), String>` for additional checks.
 #[validate(required, length(min = 10, max = 50))]
 name: Option<String>,
 ```
+
+Only for `String` fields.
 
 ### Not Blank (since 0.1.2)
 
@@ -122,6 +138,8 @@ Checks for all spaces or all whitespaces field (Strings):
 name: Option<String>,
 ```
 
+Only for `String` fields.
+
 ### One of (since 0.1.2)
 
 Checks if the string has one of the allowed values: 
@@ -131,6 +149,8 @@ Checks if the string has one of the allowed values:
 more_comments: Option<String>,
 ```
 
+Only for `String` fields.
+
 ### Not in (since 0.1.2)
 
 Checks if the string has one of the not allowed values: 
@@ -139,6 +159,7 @@ Checks if the string has one of the not allowed values:
 #[validate(required, not_in("forbidden", "banned"))]
 tag: Option<String>,
 ```
+Only for `String` fields.
 
 ### Struct check
 
@@ -203,7 +224,7 @@ edition = "2021"
 [dependencies]
 csv = "1.1"
 serde = { version = "1.0", features = ["derive"] }
-csv-schema-validator = "0.1.2"
+csv-schema-validator = "0.1.3"
 ```
 
 `src/main.rs`:
@@ -243,6 +264,12 @@ struct TestRecord {
 
     #[validate(required, not_in("forbidden", "banned"))]
     tag: Option<String>,
+
+    #[validate(range(min = 1))]
+    level: i32,
+
+    #[validate(range(max = 100))]
+    top: Option<i32>,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -267,28 +294,33 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
 ```
 
 `data.csv`: 
 
 ```csv
-90.0,XYZ5678,Bob Marley,Too long comment indeed,medium,allowed
-110.0,XYZ4567,      ,ok,short,allowed
-95.0,xWF9101,Charlie,code,long,allowed
-110.0,XYZ2345,Dave Copperfield,range,short,allowed
-34.0,XYZ6789,,name,medium,allowed
-78.0,XYZ7890,Frank,more,invalid comment,allowed
-88.0,XYZ4567,Grace,All good,short,
-90.0,XYZ3567,Grace of All Times,All good,medium,forbidden
-f34s,XYZ3456,Eve,comments,short,invalid grade
+grade,code,name,comments,more,tag,level,top
+85.5,XYZ1234,Alice Smith,All good,short,allowed,2,
+90.0,XYZ5678,Bob Marley,Too long comment indeed,medium,allowed,0,
+110.0,XYZ4567,      ,ok,short,allowed,5,
+95.0,xWF9101,Charlie,code,long,allowed,6,
+110.0,XYZ2345,Dave Copperfield,range,short,allowed,-1,80
+34.0,XYZ6789,,name,medium,allowed,5,
+78.0,XYZ7890,Frank,more,invalid comment,allowed,10,
+88.0,XYZ4567,Grace,All good,short,,3,
+90.0,XYZ3567,Grace of All Times,All good,medium,forbidden,5,150
+3.0,XYZ3456,Eve Max Smith,,short,invalid grade,2,
+f34s,XYZ3456,Eve,comments,short,invalid grade,,,
 ```
 
 Running this example will generate these messages: 
 
 ```shell
-Line 1: Record is valid: TestRecord { grade: 85.5, code: "XYZ1234", name: Some("Alice Smith"), comments: "All good", more_comments: Some("short"), tag: Some("allowed") }
+Line 1: Record is valid: TestRecord { grade: 85.5, code: "XYZ1234", name: Some("Alice Smith"), comments: "All good", more_comments: Some("short"), tag: Some("allowed"), level: 2, top: None }
 Line 2: Validation errors:
   Field `comments`: Comments too long
+  Field `level`: value below min: 1
 Line 3: Validation errors:
   Field `grade`: value out of expected range: 0 to 100
   Field `name`: length out of expected range: 10 to 50
@@ -298,6 +330,7 @@ Line 4: Validation errors:
   Field `name`: length out of expected range: 10 to 50
 Line 5: Validation errors:
   Field `grade`: value out of expected range: 0 to 100
+  Field `level`: value below min: 1
 Line 6: Validation errors:
   Field `name`: mandatory field
 Line 7: Validation errors:
@@ -308,7 +341,9 @@ Line 8: Validation errors:
   Field `tag`: mandatory field
 Line 9: Validation errors:
   Field `tag`: value not allowed
-Error: Error(Deserialize { pos: Some(Position { byte: 448, line: 11, record: 10 }), err: DeserializeError { field: Some(0), kind: ParseFloat(ParseFloatError { kind: Invalid }) } })
+  Field `top`: value above max: 100
+Line 10: Record is valid: TestRecord { grade: 3.0, code: "XYZ3456", name: Some("Eve Max Smith"), comments: "", more_comments: Some("short"), tag: Some("invalid grade"), level: 2, top: None }
+Error: Error(UnequalLengths { pos: Some(Position { byte: 542, line: 12, record: 11 }), expected_len: 8, len: 9 })
 ```
 
 ## Why Use This Crate?

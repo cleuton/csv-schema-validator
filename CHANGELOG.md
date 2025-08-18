@@ -16,11 +16,14 @@
 
 3) Version 0.1.3
 
-- Migrate repo to https://github.com/cleuton/csv-schema-validator
+- Migrated repo to https://github.com/cleuton/csv-schema-validator
 - Code refactorings to improve maintainability.
-- if 
-- required if
-- required unless
-- greater than
-- less than
-
+- `required` can only be applied to `Option<T>` fields.
+- Enforce field type / literal type check.
+- Enforce validation type: 
+    * Regex: Only for String or Option<String> fields. In case of Option<String> only validate if value is Some<>.
+    * Custom: Only for String or Option<String> fields. In case of Option<String> only validate if value is Some<>.
+    * Length: Only for String or Option<String> fields. In case of Option<String> only validate if value is Some<>.
+    * Not blank: Only for String or Option<String> fields. In case of Option<String> only validate if value is Some<>.
+    * Range: Only for numeric fields. 
+- Range now can accept only `min` or only `max`, to check `greater-or-equal` or `less-or-equal`.
