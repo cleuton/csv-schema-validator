@@ -6,7 +6,7 @@ In the roadmap: `version 0.2.0` with cross-column validations.
 
 [![Crates.io](https://img.shields.io/crates/v/csv-schema-validator.svg)](https://crates.io/crates/csv-schema-validator) [![Documentation](https://docs.rs/csv-schema-validator/badge.svg)](https://docs.rs/csv-schema-validator)
 
-[<img src="./contribute_work_yes_badge.png" width=80](./CONTRIBUTING.md).
+[<img src="./contribute_work_yes_badge.png" width=80>](./CONTRIBUTING.md).
 
 A Rust library for validating CSV record data based on rules defined directly in your structs using the `#[derive(ValidateCsv)]` macro.
 
