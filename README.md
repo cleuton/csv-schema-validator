@@ -8,6 +8,8 @@ In the roadmap: `version 0.2.0` with cross-column validations.
 
 [<img src="./contribute_work_yes_badge.png" width=120>](./CONTRIBUTING.md).
 
+[<img src="./noobs_yes_badge.png" width=120>](./CONTRIBUTING.md).
+
 A Rust library for validating CSV record data based on rules defined directly in your structs using the `#[derive(ValidateCsv)]` macro.
 
 ## Installation
