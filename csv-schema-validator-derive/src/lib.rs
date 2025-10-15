@@ -25,7 +25,8 @@ enum Validation {
     Length { min: usize, max: usize },
     NotBlank,
     OneOf { values: Vec<String> },
-    NotIn { values: Vec<String> },    
+    NotIn { values: Vec<String> },
+    IfThen { conditional_column: String, conditional_value: String, expected_value: String }, // v 0.2.0 
 }
 
 impl Validation {
@@ -58,12 +59,15 @@ impl Validation {
         if mnv.path.is_ident("regex") {
             let s = Self::expect_lit_str(&mnv.value, "Expected string literal for `regex`")?;
             out.push(Validation::Regex { regex: s });
+            Ok(())
         } else if mnv.path.is_ident("custom") {
             let s = Self::expect_lit_str(&mnv.value, "Expected string literal for `custom` (e.g., custom = \"path::to::fn\")")?;
             let path: syn::Path = syn::parse_str(&s).map_err(|e| syn::Error::new_spanned(&mnv.value, e))?;
             out.push(Validation::Custom { path });
+            Ok(())
+        } else {
+            Err(syn::Error::new_spanned(mnv, "chave desconhecida em atributo"))
         }
-        Ok(())
     }
 
     fn parse_meta_list(list: syn::MetaList, out: &mut Vec<Self>) -> syn::Result<()> {
@@ -76,12 +80,35 @@ impl Validation {
             Self::parse_one_of_list(list, out)
         } else if ident.is_ident("not_in") {
             Self::parse_not_in_list(list, out)
+        } else if ident.is_ident("if_then") {
+            Self::parse_if_then_list(list, out)
         } else {
             Ok(())
         }
     }
 
     // ---------- Handlers específicos ----------
+
+    fn parse_if_then_list(list: syn::MetaList, out: &mut Vec<Self>) -> syn::Result<()> {
+        use syn::{LitStr, Token};
+        use syn::punctuated::Punctuated;
+
+        // Espera exatamente 3 literais string
+        let args = list.parse_args_with(Punctuated::<LitStr, Token![,]>::parse_terminated)?;
+        if args.len() != 3 {
+            return Err(syn::Error::new_spanned(
+                list,
+                "if_then espera exatamente 3 strings: (conditional_column, conditional_value, expected_value)",
+            ));
+        }
+
+        let conditional_column = args[0].value();
+        let conditional_value  = args[1].value();
+        let expected_value     = args[2].value();
+
+        out.push(Self::IfThen { conditional_column, conditional_value, expected_value });
+        Ok(())
+    }
 
     fn parse_length_list(list: syn::MetaList, out: &mut Vec<Self>) -> syn::Result<()> {
         let items: syn::punctuated::Punctuated<syn::MetaNameValue, syn::Token![,]> =
@@ -246,6 +273,145 @@ impl Validation {
         Ok(())
     }
 
+    // ---------- UTILITÁRIOS GERAIS ----------
+
+    fn type_name_of(ty: &Type) -> String {
+        if let Type::Path(tp) = ty {
+            tp.path.segments.last().map(|s| s.ident.to_string()).unwrap_or_default()
+        } else { String::new() }
+    }
+
+    fn is_int_ty(n: &str) -> bool {
+        matches!(n, "i8"|"i16"|"i32"|"i64"|"i128"|"isize"|
+                    "u8"|"u16"|"u32"|"u64"|"u128"|"usize")
+    }
+
+    fn is_float_ty(n: &str) -> bool {
+        matches!(n, "f32"|"f64")
+    }
+
+    // ---------- FUNÇÕES AUXILIARES DE VALIDAÇÃO ----------
+
+    fn validate_if_then_for_field(
+        v: &[Validation],
+        field: &syn::Field,
+        field_name: &syn::Ident,
+        is_option: bool,
+        fields: &syn::punctuated::Punctuated<syn::Field, syn::token::Comma>,
+    ) -> Result<(), proc_macro::TokenStream> {
+        // Procura um if_then neste campo (se houver vários, valida o primeiro; repita se quiser todos)
+        let Some((conditional_column, conditional_value, expected_value)) =
+            v.iter().find_map(|vv| {
+                if let Validation::IfThen { conditional_column, conditional_value, expected_value } = vv {
+                    Some((conditional_column.as_str(), conditional_value.as_str(), expected_value.as_str()))
+                } else {
+                    None
+                }
+            })
+        else {
+            return Ok(());
+        };
+        
+
+        // 1) Campo alvo deve ser Option<_>
+        if !is_option {
+            return Err(
+                syn::Error::new_spanned(
+                    &field.ty,
+                    format!("`if_then` só pode ser usado em campos Option<T> (campo `{}`)", field_name)
+                ).to_compile_error().into()
+            );
+        }
+
+        // 2) Coluna condicional: existe e é Option<_>
+        let Some(cond_field) = fields.iter().find(|f|
+            f.ident.as_ref().map(|i| i.to_string() == conditional_column).unwrap_or(false)        
+        ) else {
+            return Err(
+                syn::Error::new_spanned(
+                    &field.ty,
+                    format!("`if_then`: campo condicional `{}` não existe na struct", conditional_column)
+                ).to_compile_error().into()
+            );
+        };
+
+        let Some(cond_core_ty) = option_inner_type(&cond_field.ty) else {
+            return Err(
+                syn::Error::new_spanned(
+                    &cond_field.ty,
+                    format!("`if_then`: campo condicional `{}` deve ser Option<U>", conditional_column)
+                ).to_compile_error().into()
+            );
+        };
+
+        // Tipos base
+        let cond_ty_name   = Self::type_name_of(cond_core_ty);                          // T
+        let Some(target_core_ty) = option_inner_type(&field.ty) else { unreachable!() }; // R
+        let target_ty_name = Self::type_name_of(target_core_ty);                         // R
+
+        // 3) Compatibilidade de literais (checagem leve)
+        if cond_ty_name != "String" {
+            if Self::is_int_ty(&cond_ty_name) {
+                if conditional_value.parse::<i128>().is_err() && conditional_value.parse::<u128>().is_err() {
+                    return Err(
+                        syn::Error::new_spanned(
+                            &field.ty,
+                            format!("`if_then`: `conditional_value`='{}' inválido para tipo {}", conditional_value, cond_ty_name)
+                        ).to_compile_error().into()
+                    );
+                }
+            } else if Self::is_float_ty(&cond_ty_name) {
+                if conditional_value.parse::<f64>().is_err() {
+                    return Err(
+                        syn::Error::new_spanned(
+                            &field.ty,
+                            format!("`if_then`: `conditional_value`='{}' inválido para tipo {}", conditional_value, cond_ty_name)
+                        ).to_compile_error().into()
+                    );
+                }
+            } else {
+                return Err(
+                    syn::Error::new_spanned(
+                        &field.ty,
+                        format!("`if_then`: tipo condicional `{}` não suportado; use String ou numérico", cond_ty_name)
+                    ).to_compile_error().into()
+                );
+            }
+        }
+
+        if target_ty_name != "String" {
+            if Self::is_int_ty(&target_ty_name) {
+                if expected_value.parse::<i128>().is_err() && expected_value.parse::<u128>().is_err() {
+                    return Err(
+                        syn::Error::new_spanned(
+                            &field.ty,
+                            format!("`if_then`: `expected_value`='{}' inválido para tipo {}", expected_value, target_ty_name)
+                        ).to_compile_error().into()
+                    );
+                }
+            } else if Self::is_float_ty(&target_ty_name) {
+                if expected_value.parse::<f64>().is_err() {
+                    return Err(
+                        syn::Error::new_spanned(
+                            &field.ty,
+                            format!("`if_then`: `expected_value`='{}' inválido para tipo {}", expected_value, target_ty_name)
+                        ).to_compile_error().into()
+                    );
+                }
+            } else {
+                return Err(
+                    syn::Error::new_spanned(
+                        &field.ty,
+                        format!("`if_then`: tipo do campo `{}` não suportado; use String ou numérico", target_ty_name)
+                    ).to_compile_error().into()
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+
     // ---------- Utilitários de extração ----------
 
     fn expect_lit_str(expr: &syn::Expr, msg: &str) -> syn::Result<String> {
@@ -342,9 +508,7 @@ pub fn validate_csv_derive(input: TokenStream) -> TokenStream {
                         )); // v.0.1.3
                         if needs_string {
                             let core_ty = option_inner_type(&field.ty).unwrap_or(&field.ty); // v.0.1.3
-                            let ty_name = if let Type::Path(tp) = core_ty {                 // v.0.1.3
-                                tp.path.segments.last().map(|s| s.ident.to_string()).unwrap_or_default()
-                            } else { String::new() };                                        // v.0.1.3
+                            let ty_name = Validation::type_name_of(core_ty);                                  // v.0.1.3
                             if ty_name != "String" {                                         // v.0.1.3
                                 return syn::Error::new_spanned(
                                     core_ty,
@@ -358,14 +522,9 @@ pub fn validate_csv_derive(input: TokenStream) -> TokenStream {
                             if let Validation::Range{is_float, ..} = vv { Some(*is_float) } else { None }
                         }) { // v.0.1.3
                             let core_ty = option_inner_type(&field.ty).unwrap_or(&field.ty); // v.0.1.3
-                            let ty_name = if let Type::Path(tp) = core_ty {                  // v.0.1.3
-                                tp.path.segments.last().map(|s| s.ident.to_string()).unwrap_or_default()
-                            } else { String::new() };                                        // v.0.1.3
-                            let is_int = matches!(ty_name.as_str(),
-                                "i8"|"i16"|"i32"|"i64"|"i128"|"isize"|
-                                "u8"|"u16"|"u32"|"u64"|"u128"|"usize"
-                            ); // v.0.1.3
-                            let is_float_ty = matches!(ty_name.as_str(), "f32"|"f64"); // v.0.1.3
+                            let ty_name     = Validation::type_name_of(core_ty);
+                            let is_int      = Validation::is_int_ty(&ty_name);
+                            let is_float_ty = Validation::is_float_ty(&ty_name);
                             if !(is_int || is_float_ty) {
                                 return syn::Error::new_spanned(
                                     core_ty,
@@ -384,6 +543,11 @@ pub fn validate_csv_derive(input: TokenStream) -> TokenStream {
                                     format!("`range` with integer literals requires integer field (field `{}` is `{}`)", field_name, ty_name)
                                 ).to_compile_error().into(); // v.0.1.3
                             }
+                        }
+
+                        // valida if_then para este campo (se houver)
+                        if let Err(ts) = Validation::validate_if_then_for_field(&v, field, &field_name, is_option, fields) {
+                            return ts; // já vem com to_compile_error().into()
                         }
 
                         validations.append(&mut v);
@@ -439,6 +603,7 @@ pub fn validate_csv_derive(input: TokenStream) -> TokenStream {
                 Validation::Custom { path } => {
                     gen_custom_check(&field_name_ident, &field_name_str, fv_is_option, path)
                 }
+                Validation::IfThen { conditional_column, conditional_value, expected_value } => proc_macro2::TokenStream::new(), // v 0.2.0
             }
         });
     
