@@ -369,6 +369,15 @@ impl Validation {
                         ).to_compile_error().into()
                     );
                 }
+            } else if cond_ty_name == "bool" {
+                if conditional_value.parse::<bool>().is_err() {
+                    return Err(
+                        syn::Error::new_spanned(
+                            &field.ty,
+                            format!("`if_then`: `conditional_value`='{}' inválido para tipo bool (use 'true' ou 'false')", conditional_value)
+                        ).to_compile_error().into()
+                    );
+                }
             } else {
                 return Err(
                     syn::Error::new_spanned(
@@ -395,6 +404,15 @@ impl Validation {
                         syn::Error::new_spanned(
                             &field.ty,
                             format!("`if_then`: `expected_value`='{}' inválido para tipo {}", expected_value, target_ty_name)
+                        ).to_compile_error().into()
+                    );
+                }
+            } else if target_ty_name == "bool" {
+                if expected_value.parse::<bool>().is_err() {
+                    return Err(
+                        syn::Error::new_spanned(
+                            &field.ty,
+                            format!("`if_then`: `expected_value`='{}' inválido para tipo bool (use 'true' ou 'false')", expected_value)
                         ).to_compile_error().into()
                     );
                 }
@@ -603,7 +621,19 @@ pub fn validate_csv_derive(input: TokenStream) -> TokenStream {
                 Validation::Custom { path } => {
                     gen_custom_check(&field_name_ident, &field_name_str, fv_is_option, path)
                 }
-                Validation::IfThen { conditional_column, conditional_value, expected_value } => proc_macro2::TokenStream::new(), // v 0.2.0
+                Validation::IfThen { conditional_column, conditional_value, expected_value } => {
+                    // Gera o check if_then, tipando expected_value com o tipo efetivo do campo alvo (R)
+                    // e inferindo o tipo do campo condicional (U) via FromStr no runtime.
+                    gen_if_then(
+                        &field_name_ident,
+                        &field_name_str,
+                        fv_is_option,
+                        fv_core_ty_ts.clone(),
+                        conditional_column,
+                        conditional_value,
+                        expected_value,
+                    )
+                } // v 0.2.0
             }
         });
     
@@ -886,6 +916,99 @@ fn gen_custom_check(field_ident: &syn::Ident, field_name: &str, is_option: bool,
                     });
                 }
                 Ok(()) => {}
+            }
+        }
+    }
+}
+
+
+// Gera a validação if_then:
+// Se self.<conditional_column> == conditional_value então
+//   self.<field_ident> deve existir (Some) e ser igual a expected_value.
+//
+// Observações importantes:
+// - Não assumimos tipos específicos. Em vez de tipar literais diretamente,
+//   usamos FromStr para converter as strings fornecidas no atributo para os
+//   tipos reais dos campos em tempo de execução:
+//     * expected_value -> convertido para o tipo efetivo do CAMPO ANOTADO (R)
+//       usando <R as FromStr>::from_str(...).
+//     * conditional_value -> convertido dinamicamente para o tipo do CAMPO
+//       CONDICIONAL (U) usando inferência com <_ as FromStr>::from_str(...)
+//       e comparação com *__cond_ref (o compilador infere U).
+// - Isso preserva compatibilidade com sinais, tamanhos e booleanos, sem
+//   "forçar" i32/f64. Para String, FromStr já devolve String.
+// - Se o parse falhar (embora já termos feito check em compile-time), geramos
+//   um erro amigável em runtime e ignoramos o restante do bloco.
+//
+fn gen_if_then(
+    target_field_ident: &syn::Ident,                 // campo anotado (alvo)
+    target_field_name: &str,                         // nome para mensagem
+    _target_is_option: bool,                         // já garantido ser Option<R>
+    target_core_ty_ts: proc_macro2::TokenStream,     // tipo efetivo R
+    conditional_column: String,                      // nome do campo condicional
+    conditional_value: String,                       // valor esperado no campo condicional (string literal)
+    expected_value: String,                          // valor que o campo alvo deve ter quando a condição é verdadeira
+) -> TokenStream2 {
+    let cond_ident = syn::Ident::new(&conditional_column, proc_macro2::Span::call_site());
+    let cond_val_str = conditional_value;
+    let expected_val_str = expected_value;
+
+    quote! {
+        {
+            // 1) Parse do expected_value para o tipo do campo alvo (R)
+            let __csv_expected_parse: ::core::result::Result<#target_core_ty_ts, _> =
+                <#target_core_ty_ts as ::core::str::FromStr>::from_str(#expected_val_str);
+
+            if let Ok(__csv_expected) = __csv_expected_parse {
+                // 2) Checagem da condição com helper genérico que monomorfiza em T (= tipo real do campo condicional)
+                //    Evita o uso de "<_ as FromStr>::from_str(...)" que causa E0283.
+                #[inline]
+                fn __csv_eq_parsed<T>(cond_ref: &T, s: &str) -> bool
+                where
+                    T: ::core::str::FromStr + ::core::cmp::PartialEq,
+                {
+                    match <T as ::core::str::FromStr>::from_str(s) {
+                        Ok(v) => *cond_ref == v,
+                        Err(_) => false,
+                    }
+                }
+
+                let __csv_condition_holds = match &self.#cond_ident {
+                    Some(__cond_ref) => __csv_eq_parsed(__cond_ref, #cond_val_str),
+                    None => false,
+                };
+
+                if __csv_condition_holds {
+                    match &self.#target_field_ident {
+                        Some(__v) if *__v == __csv_expected => { /* ok */ }
+                        Some(_) => {
+                            errors.push(::csv_schema_validator::ValidationError {
+                                field: #target_field_name.to_string(),
+                                message: format!(
+                                    "must be {} when {} == {}",
+                                    #expected_val_str, #conditional_column, #cond_val_str
+                                ),
+                            });
+                        }
+                        None => {
+                            errors.push(::csv_schema_validator::ValidationError {
+                                field: #target_field_name.to_string(),
+                                message: format!(
+                                    "must be {} when {} == {} (missing value)",
+                                    #expected_val_str, #conditional_column, #cond_val_str
+                                ),
+                            });
+                        }
+                    }
+                }
+            } else {
+                errors.push(::csv_schema_validator::ValidationError {
+                    field: #target_field_name.to_string(),
+                    message: format!(
+                        "invalid expected_value '{}' for field type",
+                        #expected_val_str
+                    ),
+                });
             }
         }
     }
