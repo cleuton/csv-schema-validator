@@ -1,6 +1,12 @@
 # csv-schema-validator
 
-In the roadmap: `version 0.2.1` with more cross-validations. 
+In the roadmap: `version 0.2.1` with more cross-validations: 
+
+- `if_column`: Checks if the value of the conditional column is in a list of values, then checks the value of the annotated field: 
+
+```rust
+#[validate(if_column("status", ["paid", "cancelled"], ["done","rejected"]))] // This is not the final format! Just an idea.
+```
 
 ## Version 0.2.0
 
@@ -18,7 +24,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-csv-schema-validator = "0.1.3"
+csv-schema-validator = "0.2.0"
 serde = { version = "1.0", features = ["derive"] }
 csv = "1.3"
 regex = "1.11"

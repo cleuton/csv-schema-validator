@@ -175,3 +175,140 @@ Developers can quickly add CSV schema validation to their Rust structs by:
 3. Calling `record.validate_csv()` after deserialization.
 
 This architecture ensures type safety, compile-time errors for unsupported patterns, and clear error reporting at runtime.
+
+## Publishing to crates.io
+
+This project is organized as a Cargo workspace containing two crates:
+
+* `csv-schema-validator` — the main library
+* `csv-schema-validator-derive` — the procedural macro crate
+
+### Prerequisites
+
+Before publishing, make sure you have:
+
+1. A verified [crates.io](https://crates.io) account
+
+2. A valid API token added via
+
+   ```bash
+   cargo login <YOUR_TOKEN>
+   ```
+
+3. Matching semantic versions in both crates (`0.2.0`, `0.2.1`, etc.)
+
+### Checklist Before Publishing
+
+Each crate must have:
+
+* A complete `Cargo.toml` including:
+
+  * `name`, `version`, `edition`, `description`, `license = "MIT OR Apache-2.0"`, `repository`, `readme`
+  * Proper `categories` and `keywords`
+  * No local `path` dependencies for published packages
+* License files: `LICENSE-MIT` and `LICENSE-APACHE`
+* `README.md` and, ideally, `CHANGELOG.md`
+* An `include` list to limit package contents:
+
+  ```toml
+  [package]
+  include = ["src/**", "Cargo.toml", "README.md", "LICENSE-*", "CHANGELOG.md"]
+  ```
+* (Optional) docs.rs configuration:
+
+  ```toml
+  [package.metadata.docs.rs]
+  all-features = true
+  ```
+
+### Publishing Order
+
+1. **Publish the derive crate first**
+
+   ```bash
+   cd csv-schema-validator-derive
+   cargo package
+   cargo publish --dry-run
+   cargo publish
+   ```
+
+2. Wait a few minutes for crates.io to update its index.
+
+3. **Update the main crate** dependency to use the published version:
+
+   ```toml
+   [dependencies]
+   csv-schema-validator-derive = "0.2.0"
+   ```
+
+4. **Publish the main crate**
+
+   ```bash
+   cd ../csv-schema-validator
+   cargo package
+   cargo publish --dry-run
+   cargo publish
+   ```
+
+### Useful Commands
+
+Check what files will be included:
+
+```bash
+cargo package --list
+```
+
+Inspect dependency resolution:
+
+```bash
+cargo tree -i csv-schema-validator-derive
+```
+
+Build docs locally as docs.rs would:
+
+```bash
+RUSTDOCFLAGS="--cfg docsrs" cargo doc --no-deps --all-features
+```
+
+### Tags and Releases
+
+After successful publishing:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+Optionally, create a GitHub release and attach changelogs or example files.
+
+### Handling Mistakes
+
+* You **cannot overwrite** a published version.
+  Bump and release a new one (`0.2.1`, `0.2.2`, etc.).
+* To temporarily disable a broken version:
+
+  ```bash
+  cargo yank --vers 0.2.0 csv-schema-validator
+  ```
+
+  To undo the yank:
+
+  ```bash
+  cargo yank --vers 0.2.0 --undo csv-schema-validator
+  ```
+
+### Local Development Tip
+
+To test unpublished changes without editing `Cargo.toml`, use `.cargo/config.toml`:
+
+```toml
+[patch.crates-io]
+csv-schema-validator-derive = { path = "csv-schema-validator-derive" }
+```
+
+---
+
+Would you like me to append a short **“Release Process Summary”** section (3-4 lines) for the top of the file so contributors can see the overview at a glance?
+
+
+
