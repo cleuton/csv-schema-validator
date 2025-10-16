@@ -170,9 +170,10 @@ Only for `String` fields.
 Defines a *cross-column implication rule* between two columns. If the conditional column matches a given value, the current column must equal a specific target value.
 
 ```rust
-#[validate(if_then("<conditional_column>", <conditional_value>, <expected_value>))]
+#[validate(if_then("<conditional_column>", "<conditional_value>", "<expected_value>"))]
 ```
 
+* All arguments must be String literals. The types will be adjusted according to the fields types. 
 * If the conditional column (`<conditional_column>`) is `Some(<conditional_value>)`,
   then the current field must be equal to `<expected_value>`.
 * If the condition is not met, the current field is not validated (it can be `None` or any other value).
@@ -191,7 +192,7 @@ struct Order {
     plan: Option<String>,
 
     // If plan == "P" → seats must be 100
-    #[validate(if_then("plan", "P", 100))]
+    #[validate(if_then("plan", "P", "100"))]
     seats: Option<u32>,
 }
 ```
