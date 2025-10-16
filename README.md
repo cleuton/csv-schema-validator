@@ -1,8 +1,14 @@
 # csv-schema-validator
 
-In the roadmap: `version 0.2.0` with cross-column validations. 
+In the roadmap: `version 0.2.1` with more cross-validations: 
 
-## Version 0.1.3
+- `if_column`: Checks if the value of the conditional column is in a list of values, then checks the value of the annotated field: 
+
+```rust
+#[validate(if_column("status", ["paid", "cancelled"], ["done","rejected"]))] // This is not the final format! Just an idea.
+```
+
+## Version 0.2.0
 
 [![Crates.io](https://img.shields.io/crates/v/csv-schema-validator.svg)](https://crates.io/crates/csv-schema-validator) [![Documentation](https://docs.rs/csv-schema-validator/badge.svg)](https://docs.rs/csv-schema-validator)
 
@@ -18,7 +24,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-csv-schema-validator = "0.1.3"
+csv-schema-validator = "0.2.0"
 serde = { version = "1.0", features = ["derive"] }
 csv = "1.3"
 regex = "1.11"
@@ -164,6 +170,38 @@ Checks if the string has one of the not allowed values:
 tag: Option<String>,
 ```
 Only for `String` fields.
+
+### if_then (since 0.2.0)
+
+Defines a *cross-column implication rule* between two columns. If the conditional column matches a given value, the current column must equal a specific target value.
+
+```rust
+#[validate(if_then("<conditional_column>", "<conditional_value>", "<expected_value>"))]
+```
+
+* All arguments must be String literals. The types will be adjusted according to the fields types. 
+* If the conditional column (`<conditional_column>`) is `Some(<conditional_value>)`,
+  then the current field must be equal to `<expected_value>`.
+* If the condition is not met, the current field is not validated (it can be `None` or any other value).
+* Both columns must be optional (`Option<T>` and `Option<R>`), but their inner types may differ — for example, `Option<String>` and `Option<i32>`.
+* Comparison uses equality (`==`).
+
+```rust
+#[derive(Deserialize, ValidateCsv, Debug)]
+struct Order {
+    status: Option<String>,
+
+    // If status == "paid" → payment_state must be "done"
+    #[validate(if_then("status", "paid", "done"))]
+    payment_state: Option<String>,
+
+    plan: Option<String>,
+
+    // If plan == "P" → seats must be 100
+    #[validate(if_then("plan", "P", "100"))]
+    seats: Option<u32>,
+}
+```
 
 ### Struct check
 

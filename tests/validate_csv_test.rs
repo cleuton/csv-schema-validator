@@ -293,3 +293,105 @@ fn test_tag_value_above_max() {
     assert_eq!(errors[0].field, "temp3");
     assert!(errors[0].message.contains("value above max"));
 }
+
+// ------------------------------------------------------------
+// Testes para validação cross-column: #[validate(if_then(...))]
+// ------------------------------------------------------------
+
+#[derive(Deserialize, ValidateCsv, Debug)]
+struct PlanSeatsRecord {
+    // Condição: se plan == "P" então seats deve ser 100
+    plan: Option<String>,
+    #[validate(if_then("plan", "P", "100"))]
+    seats: Option<i32>,
+}
+
+#[test]
+fn test_if_then_string_to_i32_ok() {
+    let r = PlanSeatsRecord { plan: Some("P".into()), seats: Some(100) };
+    assert_matches!(r.validate_csv(), Ok(()));
+}
+
+#[test]
+fn test_if_then_string_to_i32_wrong_value() {
+    let r = PlanSeatsRecord { plan: Some("P".into()), seats: Some(99) };
+    let errs = r.validate_csv().unwrap_err();
+    assert_eq!(errs[0].field, "seats");
+    assert!(errs[0].message.contains("must be"));
+    assert!(errs[0].message.contains("when plan == P"));
+}
+
+#[test]
+fn test_if_then_string_to_i32_missing_value() {
+    let r = PlanSeatsRecord { plan: Some("P".into()), seats: None };
+    let errs = r.validate_csv().unwrap_err();
+    assert_eq!(errs[0].field, "seats");
+    assert!(errs[0].message.contains("missing value"));
+    assert!(errs[0].message.contains("when plan == P"));
+}
+
+#[test]
+fn test_if_then_string_to_i32_condition_not_met() {
+    // Condição não satisfeita (plan != "P"): seats pode ser None ou outro valor
+    let r = PlanSeatsRecord { plan: Some("Q".into()), seats: None };
+    assert_matches!(r.validate_csv(), Ok(()));
+}
+
+#[derive(Deserialize, ValidateCsv, Debug)]
+struct FlagStatusRecord {
+    // Condição: se enabled == true então status deve ser "ON"
+    enabled: Option<bool>,
+    #[validate(if_then("enabled", "true", "ON"))]
+    status: Option<String>,
+}
+
+#[test]
+fn test_if_then_bool_to_string_ok() {
+    let r = FlagStatusRecord { enabled: Some(true), status: Some("ON".into()) };
+    assert_matches!(r.validate_csv(), Ok(()));
+}
+
+#[test]
+fn test_if_then_bool_to_string_wrong_value() {
+    let r = FlagStatusRecord { enabled: Some(true), status: Some("OFF".into()) };
+    let errs = r.validate_csv().unwrap_err();
+    assert_eq!(errs[0].field, "status");
+    assert!(errs[0].message.contains("must be ON"));
+    assert!(errs[0].message.contains("when enabled == true"));
+}
+
+#[test]
+fn test_if_then_bool_to_string_condition_not_met() {
+    // enabled = false: não exige "ON"
+    let r = FlagStatusRecord { enabled: Some(false), status: None };
+    assert_matches!(r.validate_csv(), Ok(()));
+}
+
+#[derive(Deserialize, ValidateCsv, Debug)]
+struct NumToU32Record {
+    // Condição: se cond == 10 então seats deve ser 100u32
+    cond: Option<i32>,
+    #[validate(if_then("cond", "10", "100"))]
+    seats: Option<u32>,
+}
+
+#[test]
+fn test_if_then_i32_to_u32_ok() {
+    let r = NumToU32Record { cond: Some(10), seats: Some(100u32) };
+    assert_matches!(r.validate_csv(), Ok(()));
+}
+
+#[test]
+fn test_if_then_i32_to_u32_wrong_value() {
+    let r = NumToU32Record { cond: Some(10), seats: Some(101u32) };
+    let errs = r.validate_csv().unwrap_err();
+    assert_eq!(errs[0].field, "seats");
+    assert!(errs[0].message.contains("must be 100"));
+    assert!(errs[0].message.contains("when cond == 10"));
+}
+
+#[test]
+fn test_if_then_i32_to_u32_condition_not_met() {
+    let r = NumToU32Record { cond: Some(9), seats: None };
+    assert_matches!(r.validate_csv(), Ok(()));
+}

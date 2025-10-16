@@ -27,3 +27,25 @@
     * Not blank: Only for String or Option<String> fields. In case of Option<String> only validate if value is Some<>.
     * Range: Only for numeric fields. 
 - Range now can accept only `min` or only `max`, to check `greater-or-equal` or `less-or-equal`.
+
+4) Version 0.2.0
+
+- Added cross-column validation: `if_then("<conditional_column>", <conditional_value>, <expected_value>)`.
+- The `if_then` rule defines a logical implication between two columns.
+  If the conditional column equals `<conditional_value>`, the annotated column must equal `<expected_value>`.
+- Both columns must be optional (`Option<T>` and `Option<R>`), and their inner types may differ (e.g., `Option<String>` with `Option<u32>`).
+- Equality-only comparison. If the condition is not met, the annotated field is not validated (it may be `None` or any value).
+- Example:
+  ```rust
+  use serde::Deserialize;
+  use csv_schema_validator::ValidateCsv;
+
+  #[derive(Deserialize, ValidateCsv, Debug)]
+  struct Order {
+      plan: Option<String>,
+
+      // If plan == "P" → seats must be 100
+      #[validate(if_then("plan", "P", 100))]
+      seats: Option<u32>,
+  }
+  ```
