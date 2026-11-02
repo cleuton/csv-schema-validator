@@ -800,24 +800,26 @@ fn gen_length_check(field_ident: &syn::Ident, field_name: &str, is_option: bool,
 
 fn gen_regex_check(field_ident: &syn::Ident, field_name: &str, is_option: bool, regex: String) -> TokenStream2 {
     let body = quote! {
-        use ::csv_schema_validator::__private::once_cell::sync::Lazy;
-        use ::csv_schema_validator::__private::regex;
-        static RE: Lazy<Result<regex::Regex, regex::Error>> = Lazy::new(|| regex::Regex::new(#regex));
+        {
+            use ::csv_schema_validator::__private::once_cell::sync::Lazy;
+            use ::csv_schema_validator::__private::regex;
+            static RE: Lazy<Result<regex::Regex, regex::Error>> = Lazy::new(|| regex::Regex::new(#regex));
 
-        match RE.as_ref() {
-            Ok(compiled_regex) => {
-                if !compiled_regex.is_match(value) {
+            match RE.as_ref() {
+                Ok(compiled_regex) => {
+                    if !compiled_regex.is_match(value) {
+                        errors.push(::csv_schema_validator::ValidationError {
+                            field: #field_name.to_string(),
+                            message: "does not match the expected pattern".to_string(),
+                        });
+                    }
+                }
+                Err(e) => {
                     errors.push(::csv_schema_validator::ValidationError {
                         field: #field_name.to_string(),
-                        message: "does not match the expected pattern".to_string(),
+                        message: format!("invalid regex '{}': {}", #regex, e),
                     });
                 }
-            }
-            Err(e) => {
-                errors.push(::csv_schema_validator::ValidationError {
-                    field: #field_name.to_string(),
-                    message: format!("invalid regex '{}': {}", #regex, e),
-                });
             }
         }
     };
